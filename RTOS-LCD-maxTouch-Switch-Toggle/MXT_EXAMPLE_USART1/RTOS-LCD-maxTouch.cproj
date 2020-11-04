@@ -751,6 +751,7 @@
     <Folder Include="src\ASF\thirdparty\freertos\freertos-8.2.3\Source\portable\GCC\ARM_CM7\r0p1\" />
     <Folder Include="src\ASF\thirdparty\freertos\freertos-8.2.3\Source\portable\MemMang\" />
     <Folder Include="src\config\" />
+    <Folder Include="src\design\" />
     <Folder Include="src\maxTouch" />
   </ItemGroup>
   <ItemGroup>
@@ -770,6 +771,18 @@
       <SubType>compile</SubType>
     </None>
     <Compile Include="src\ASF\sam\drivers\afec\afec.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="src\design\oxi-num-small.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="src\design\oxi-numero.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="src\design\OXI_screen_day.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="src\design\OXI_screen_night.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="src\digital521.h">
@@ -1532,6 +1545,24 @@
       <SubType>compile</SubType>
     </None>
     <None Include="src\ASF\thirdparty\CMSIS\README.txt">
+      <SubType>compile</SubType>
+    </None>
+    <None Include="src\design\OXI.svg">
+      <SubType>compile</SubType>
+    </None>
+    <None Include="src\design\OXI_screen_day.png">
+      <SubType>compile</SubType>
+    </None>
+    <None Include="src\design\OXI_screen_day.svg">
+      <SubType>compile</SubType>
+    </None>
+    <None Include="src\design\OXI_screen_night.png">
+      <SubType>compile</SubType>
+    </None>
+    <None Include="src\design\OXI_screen_night.svg">
+      <SubType>compile</SubType>
+    </None>
+    <None Include="src\design\Seven Segment.ttf">
       <SubType>compile</SubType>
     </None>
   </ItemGroup>

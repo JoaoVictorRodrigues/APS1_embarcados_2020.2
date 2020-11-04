@@ -7,6 +7,10 @@
 #include "maxTouch/maxTouch.h"
 #include "tfont.h"
 #include "digital521.h"
+#include "design/oxi-num-small.h"
+#include "design/oxi-numero.h"
+#include "design/OXI_screen_night.h"
+#include "design/OXI_screen_day.h" 
 
 /************************************************************************/
 /* prototypes                                                           */
@@ -105,8 +109,8 @@ static void configure_lcd(void){
   /* Initialize display parameter */
   g_ili9488_display_opt.ul_width = ILI9488_LCD_WIDTH;
   g_ili9488_display_opt.ul_height = ILI9488_LCD_HEIGHT;
-  g_ili9488_display_opt.foreground_color = COLOR_CONVERT(COLOR_WHITE);
-  g_ili9488_display_opt.background_color = COLOR_CONVERT(COLOR_WHITE);
+  g_ili9488_display_opt.foreground_color = COLOR_CONVERT(COLOR_BLACK);
+  g_ili9488_display_opt.background_color = COLOR_CONVERT(COLOR_BLACK);
 
   /* Initialize LCD */
   ili9488_init(&g_ili9488_display_opt);
@@ -117,8 +121,9 @@ static void configure_lcd(void){
 /************************************************************************/
 
 void draw_screen(void) {
-  ili9488_set_foreground_color(COLOR_CONVERT(COLOR_WHITE));
+  ili9488_set_foreground_color(COLOR_CONVERT(COLOR_BLACK));
   ili9488_draw_filled_rectangle(0, 0, ILI9488_LCD_WIDTH-1, ILI9488_LCD_HEIGHT-1);
+	ili9488_draw_pixmap(0, 0, OXI_screen_night.width, OXI_screen_night.height, OXI_screen_night.data);
 }
 
 void draw_button(uint32_t clicked) {
@@ -208,7 +213,17 @@ void mxt_handler(struct mxt_device *device, uint *x, uint *y)
     * if we have reached the maximum numbers of events */
   } while ((mxt_is_message_pending(device)) & (i < MAX_ENTRIES));
 }
+void update_bat(int n){
+	char buffer[32];
+	sprintf(buffer, "%03d" , n);
+	font_draw_text(&oxinumero, buffer, 50, 50, 0);
+}
 
+void update_oxi(int n){
+	char buff[32];
+	sprintf(buff, "%03d", n);
+	font_draw_text(&oxinumero, buff, 50, 200, 0);
+}
 /************************************************************************/
 /* tasks                                                                */
 /************************************************************************/
@@ -243,10 +258,12 @@ void task_lcd(void){
   configure_lcd();
   
   draw_screen();
-  draw_button(0);
+ // draw_button(0);
   
   // Escreve DEMO - BUT no LCD
-  font_draw_text(&digital52, "DEMO - BUT", 0, 0, 1);
+  //font_draw_text(&batnumero, "0123", 0, 0, 0);
+	update_bat(23);
+	update_oxi(100);
   
   // strut local para armazenar msg enviada pela task do mxt
   touchData touch;
