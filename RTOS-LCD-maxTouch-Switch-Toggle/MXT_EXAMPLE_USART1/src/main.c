@@ -23,6 +23,14 @@ void but1_callback(void);
 /************************************************************************/
 #define MAX_ENTRIES        10
 
+#define AFEC_POT AFEC1
+#define AFEC_POT_ID ID_AFEC1
+#define AFEC_POT_CHANNEL		6		// Canal do pino PC31
+
+#define AFEC_POT_0 AFEC0
+#define AFEC_POT_ID_0 ID_AFEC0
+#define AFEC_POT_CHANNEL_0		8		// Canal do pino PC31
+
 struct ili9488_opt_t g_ili9488_display_opt;
 const uint32_t BUTTON_W = 120;
 const uint32_t BUTTON_H = 150;
@@ -49,8 +57,24 @@ typedef struct {
   uint y;
 } touchData;
 
-QueueHandle_t xQueueTouch;
+typedef struct {
+	uint value;
+} adcData;
 
+
+QueueHandle_t xQueueTouch;
+QueueHandle_t xQueueADC_bat;
+QueueHandle_t xQueueADC_oxi;
+
+/* Semaforos */
+SemaphoreHandle_t xSemaphore_bat;
+SemaphoreHandle_t xSemaphore_oxi;
+
+/** The conversion data is done flag */
+volatile bool g_is_conversion_done = false;
+
+/** The conversion data value */
+volatile uint32_t g_ul_value = 0;
 /************************************************************************/
 /* handler/callbacks                                                    */
 /************************************************************************/
@@ -126,21 +150,21 @@ void draw_screen(void) {
 	ili9488_draw_pixmap(0, 0, OXI_screen_night.width, OXI_screen_night.height, OXI_screen_night.data);
 }
 
-void draw_button(uint32_t clicked) {
-  static uint32_t last_state = 255; // undefined
-  if(clicked == last_state) return;
-  
-  ili9488_set_foreground_color(COLOR_CONVERT(COLOR_BLACK));
-  ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2, BUTTON_Y-BUTTON_H/2, BUTTON_X+BUTTON_W/2, BUTTON_Y+BUTTON_H/2);
-  if(clicked) {
-    ili9488_set_foreground_color(COLOR_CONVERT(COLOR_TOMATO));
-    ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y+BUTTON_H/2-BUTTON_BORDER);
-    } else {
-    ili9488_set_foreground_color(COLOR_CONVERT(COLOR_GREEN));
-    ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y-BUTTON_H/2+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y-BUTTON_BORDER);
-  }
-  last_state = clicked;
-}
+// void draw_button(uint32_t clicked) {
+//   static uint32_t last_state = 255; // undefined
+//   if(clicked == last_state) return;
+//   
+//   ili9488_set_foreground_color(COLOR_CONVERT(COLOR_BLACK));
+//   ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2, BUTTON_Y-BUTTON_H/2, BUTTON_X+BUTTON_W/2, BUTTON_Y+BUTTON_H/2);
+//   if(clicked) {
+//     ili9488_set_foreground_color(COLOR_CONVERT(COLOR_TOMATO));
+//     ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y+BUTTON_H/2-BUTTON_BORDER);
+//     } else {
+//     ili9488_set_foreground_color(COLOR_CONVERT(COLOR_GREEN));
+//     ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y-BUTTON_H/2+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y-BUTTON_BORDER);
+//   }
+//   last_state = clicked;
+// }
 
 uint32_t convert_axis_system_x(uint32_t touch_y) {
   // entrada: 4096 - 0 (sistema de coordenadas atual)
@@ -155,13 +179,6 @@ uint32_t convert_axis_system_y(uint32_t touch_x) {
 }
 
 void update_screen(uint32_t tx, uint32_t ty) {
-  if(tx >= BUTTON_X-BUTTON_W/2 && tx <= BUTTON_X + BUTTON_W/2) {
-    if(ty >= BUTTON_Y-BUTTON_H/2 && ty <= BUTTON_Y) {
-      draw_button(1);
-      } else if(ty > BUTTON_Y && ty < BUTTON_Y + BUTTON_H/2) {
-      draw_button(0);
-    }
-  }
 }
 
 void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
@@ -213,16 +230,101 @@ void mxt_handler(struct mxt_device *device, uint *x, uint *y)
     * if we have reached the maximum numbers of events */
   } while ((mxt_is_message_pending(device)) & (i < MAX_ENTRIES));
 }
-void update_bat(int n){
-	char buffer[32];
-	sprintf(buffer, "%03d" , n);
-	font_draw_text(&oxinumero, buffer, 50, 50, 0);
+
+static void AFEC_pot_Callback_bat(void){
+	g_ul_value = afec_channel_get_value(AFEC_POT, AFEC_POT_CHANNEL);
+	g_is_conversion_done = true;
+	
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	xSemaphoreGiveFromISR(xSemaphore_bat, &xHigherPriorityTaskWoken);
+	
+	adcData adc_bat;
+	adc_bat.value = g_ul_value;
+	xQueueSendFromISR(xQueueADC_bat, &adc_bat, 0);
 }
+
+static void AFEC_pot_Callback_oxi(void){
+	g_ul_value = afec_channel_get_value(AFEC_POT_0, AFEC_POT_CHANNEL_0);
+	g_is_conversion_done = true;
+	
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	xSemaphoreGiveFromISR(xSemaphore_oxi, &xHigherPriorityTaskWoken);
+	
+	adcData adc_oxi;
+	adc_oxi.value = g_ul_value;
+	xQueueSendFromISR(xQueueADC_oxi, &adc_oxi, 0);
+}
+
+static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel, afec_callback_t callback){
+  /*************************************
+  * Ativa e configura AFEC
+  *************************************/
+  /* Ativa AFEC - 0 */
+  afec_enable(afec);
+
+  /* struct de configuracao do AFEC */
+  struct afec_config afec_cfg;
+
+  /* Carrega parametros padrao */
+  afec_get_config_defaults(&afec_cfg);
+
+  /* Configura AFEC */
+  afec_init(afec, &afec_cfg);
+
+  /* Configura trigger por software */
+  afec_set_trigger(afec, AFEC_TRIG_SW);
+
+  /*** Configuracao espec?fica do canal AFEC ***/
+  struct afec_ch_config afec_ch_cfg;
+  afec_ch_get_config_defaults(&afec_ch_cfg);
+  afec_ch_cfg.gain = AFEC_GAINVALUE_0;
+  afec_ch_set_config(afec, afec_channel, &afec_ch_cfg);
+
+  /*
+  * Calibracao:
+  * Because the internal ADC offset is 0x200, it should cancel it and shift
+  down to 0.
+  */
+  afec_channel_set_analog_offset(afec, afec_channel, 0x200);
+
+  /***  Configura sensor de temperatura ***/
+  struct afec_temp_sensor_config afec_temp_sensor_cfg;
+
+  afec_temp_sensor_get_config_defaults(&afec_temp_sensor_cfg);
+  afec_temp_sensor_set_config(afec, &afec_temp_sensor_cfg);
+  
+  /* configura IRQ */
+  afec_set_callback(afec, afec_channel,	callback, 1);
+  NVIC_SetPriority(afec_id, 4);
+  NVIC_EnableIRQ(afec_id);
+}
+
+
 
 void update_oxi(int n){
 	char buff[32];
+	sprintf(buff, "%03d" , n);
+	font_draw_text(&oxinumero, buff, 150, 50, 0);
+}
+
+void update_bat(int n){
+	char buff[32];
 	sprintf(buff, "%03d", n);
-	font_draw_text(&oxinumero, buff, 50, 200, 0);
+	font_draw_text(&oxinumero, buff, 150, 280, 0);
+}
+
+void draw_hist(int n,int first){
+	char buff[32];
+	sprintf(buff,"%03d",n);
+	if (first)
+	{
+		font_draw_text(&oxinumsmall,buff,10,60,0);
+	} 
+	else
+	{
+		font_draw_text(&oxinumsmall,buff,10,110,0);
+	}
+	
 }
 /************************************************************************/
 /* tasks                                                                */
@@ -253,26 +355,85 @@ void task_mxt(void){
   }
 }
 
+
+
+void task_adc(void){
+
+	/* inicializa e configura adc up*/
+	config_AFEC_pot(AFEC_POT, AFEC_POT_ID, AFEC_POT_CHANNEL, AFEC_pot_Callback_bat);
+	config_AFEC_pot(AFEC_POT_0, AFEC_POT_ID_0, AFEC_POT_CHANNEL_0, AFEC_pot_Callback_oxi);
+
+	/* Selecina canal e inicializa convers?o */
+	afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
+	afec_start_software_conversion(AFEC_POT);
+	
+	afec_channel_enable(AFEC_POT_0, AFEC_POT_CHANNEL_0);
+	afec_start_software_conversion(AFEC_POT_0);
+
+	adcData adc;
+	
+	xSemaphore_bat = xSemaphoreCreateBinary();
+	xSemaphore_oxi = xSemaphoreCreateBinary();
+	
+	if (xSemaphore_bat == NULL) printf("falha em criar o semaforo \n");
+	if (xSemaphore_oxi == NULL) printf("falha em criar o semaforo \n");
+
+	
+	while(1){
+		if(xSemaphoreTake(xSemaphore_bat, (TickType_t)500) == pdTRUE){
+			//if(g_is_conversion_done){
+			printf("%d\n", g_ul_value);
+			
+			vTaskDelay(500);
+
+			/* Selecina canal e inicializa convers?o */
+			afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
+			afec_start_software_conversion(AFEC_POT);
+		}
+		if(xSemaphoreTake(xSemaphore_oxi, (TickType_t)500) == pdTRUE){
+			//if(g_is_conversion_done){
+			printf("%d\n", g_ul_value);
+					
+			vTaskDelay(500);
+
+			/* Selecina canal e inicializa convers?o */
+			afec_channel_enable(AFEC_POT_0, AFEC_POT_CHANNEL_0);
+			afec_start_software_conversion(AFEC_POT_0);
+		}
+	}
+}
+
 void task_lcd(void){
   xQueueTouch = xQueueCreate( 10, sizeof( touchData ) );
+	xQueueADC_bat   = xQueueCreate( 5, sizeof( adcData ) );
+	xQueueADC_oxi   = xQueueCreate( 5, sizeof( adcData ) );
   configure_lcd();
   
   draw_screen();
- // draw_button(0);
   
   // Escreve DEMO - BUT no LCD
   //font_draw_text(&batnumero, "0123", 0, 0, 0);
-	update_bat(23);
-	update_oxi(100);
+  //update_bat(23);
+	//update_oxi(100);
+	draw_hist(100,0);
   
   // strut local para armazenar msg enviada pela task do mxt
   touchData touch;
-  
+  adcData adc_bat;
+	adcData adc_oxi;
   while (true) {
     if (xQueueReceive( xQueueTouch, &(touch), ( TickType_t )  500 / portTICK_PERIOD_MS)) {
-      update_screen(touch.x, touch.y);
       printf("x:%d y:%d\n", touch.x, touch.y);
+			
     }
+		
+		if (xQueueReceive( xQueueADC_bat, &(adc_bat), ( TickType_t )  100 / portTICK_PERIOD_MS)) {
+			update_bat(adc_bat.value);
+		}
+		
+		if (xQueueReceive( xQueueADC_oxi, &(adc_oxi), ( TickType_t )  100 / portTICK_PERIOD_MS)) {
+			update_oxi(adc_oxi.value);
+		}
   }
 }
 
@@ -305,6 +466,11 @@ int main(void)
   if (xTaskCreate(task_lcd, "lcd", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
     printf("Failed to create test led task\r\n");
   }
+	
+	/* Create task to handler LCD */
+	if (xTaskCreate(task_adc, "adc", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
+		printf("Failed to create test adc task\r\n");
+	}
   
   /* Start the scheduler. */
   vTaskStartScheduler();
