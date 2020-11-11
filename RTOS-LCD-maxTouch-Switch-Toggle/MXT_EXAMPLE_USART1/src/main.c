@@ -38,6 +38,18 @@ const uint32_t BUTTON_BORDER = 2;
 const uint32_t BUTTON_X = ILI9488_LCD_WIDTH/2;
 const uint32_t BUTTON_Y = ILI9488_LCD_HEIGHT/2;
 
+const uint32_t LOCX_DAY_NIGHT = 0;
+const uint32_t LOCY_DAY_NIGHT = 406;
+const uint32_t W_DAY_NIGHT = 112;
+const uint32_t H_DAY_NIGHT = 73;
+const uint32_t LOCX_PLAY = 111;
+const uint32_t LOCY_PLAY = 406;
+const uint32_t W_PLAY = 209;
+const uint32_t H_PLAY = 73;
+
+
+
+
 /************************************************************************/
 /* Botoes lcd                                                           */
 /************************************************************************/
@@ -178,9 +190,6 @@ uint32_t convert_axis_system_y(uint32_t touch_x) {
   return ILI9488_LCD_HEIGHT*touch_x/4096;
 }
 
-void update_screen(uint32_t tx, uint32_t ty) {
-}
-
 void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
   char *p = text;
   while(*p != NULL) {
@@ -299,7 +308,29 @@ static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel,
   NVIC_EnableIRQ(afec_id);
 }
 
+int set_touch(uint32_t tx, uint32_t ty, uint32_t LocX, uint32_t LocY, uint32_t ButtonW, uint32_t ButtonH)
+{
+	if (tx >= LocX && tx <= LocX + ButtonW)
+	{
+		if (ty >= LocY && ty <= LocY + ButtonH)
+		{
+			return 1;
+		}
+	}
+	return 0;
+}
 
+void update_screen(uint32_t tx, uint32_t ty,int *pause,int *day_night)
+{
+	if (set_touch(tx, ty, LOCX_PLAY, LOCY_PLAY, W_PLAY, H_PLAY))
+	{
+		*pause = !*pause;
+	}
+	if (set_touch(tx, ty, LOCX_DAY_NIGHT, LOCY_DAY_NIGHT, W_DAY_NIGHT, H_DAY_NIGHT))
+	{
+		*day_night = !*day_night;
+	}
+}
 
 void update_oxi(int n){
 	char buff[32];
@@ -313,18 +344,26 @@ void update_bat(int n){
 	font_draw_text(&oxinumero, buff, 150, 280, 0);
 }
 
-void draw_hist(int n,int first){
-	char buff[32];
-	sprintf(buff,"%03d",n);
-	if (first)
-	{
-		font_draw_text(&oxinumsmall,buff,10,60,0);
-	} 
-	else
-	{
-		font_draw_text(&oxinumsmall,buff,10,110,0);
-	}
-	
+int filter(int p){
+	return p/40;
+}
+
+void draw_hist_oxi(int *hist[]){
+	char buff0[32];
+	char buff1[32];
+	sprintf(buff0,"%03d",hist[0]);
+	sprintf(buff1,"%03d",hist[1]);
+	font_draw_text(&oxinumsmall,buff0,10,60,0);
+	font_draw_text(&oxinumsmall,buff1,10,110,0);
+}
+
+void draw_hist_bat(int *hist[]){
+	char buff0[32];
+	char buff1[32];
+	sprintf(buff0,"%03d",hist[0]);
+	sprintf(buff1,"%03d",hist[1]);
+	font_draw_text(&oxinumsmall,buff0,30,60,0);
+	font_draw_text(&oxinumsmall,buff1,30,110,0);
 }
 /************************************************************************/
 /* tasks                                                                */
@@ -354,8 +393,6 @@ void task_mxt(void){
     vTaskDelay(300);
   }
 }
-
-
 
 void task_adc(void){
 
@@ -403,6 +440,13 @@ void task_adc(void){
 	}
 }
 
+void update_hist(int *hist[],int value){
+	*hist[1] = *hist[0];
+	*hist[0] = value;
+	}
+	
+
+
 void task_lcd(void){
   xQueueTouch = xQueueCreate( 10, sizeof( touchData ) );
 	xQueueADC_bat   = xQueueCreate( 5, sizeof( adcData ) );
@@ -415,7 +459,15 @@ void task_lcd(void){
   //font_draw_text(&batnumero, "0123", 0, 0, 0);
   //update_bat(23);
 	//update_oxi(100);
-	draw_hist(100,0);
+	int pause=1;
+	int day_night=1;
+	int ZERA = 0;
+	int got = 0;
+	
+	int hist_bat[2];
+	int temp_bat;
+	int hist_oxi[2];
+	int temp_oxi;
   
   // strut local para armazenar msg enviada pela task do mxt
   touchData touch;
@@ -423,17 +475,36 @@ void task_lcd(void){
 	adcData adc_oxi;
   while (true) {
     if (xQueueReceive( xQueueTouch, &(touch), ( TickType_t )  500 / portTICK_PERIOD_MS)) {
+			update_screen(touch.x, touch.y,&pause,&day_night);
       printf("x:%d y:%d\n", touch.x, touch.y);
 			
     }
-		
-		if (xQueueReceive( xQueueADC_bat, &(adc_bat), ( TickType_t )  100 / portTICK_PERIOD_MS)) {
-			update_bat(adc_bat.value);
+		if (!pause)
+		{
+				got = 1;
+				if (xQueueReceive( xQueueADC_bat, &(adc_bat), ( TickType_t )  100 / portTICK_PERIOD_MS)) {
+					temp_bat = filter(adc_bat.value);
+					update_bat(filter(adc_bat.value));
+					printf("adc_bat: %d\n", adc_bat.value);
+				}
+					
+				if (xQueueReceive( xQueueADC_oxi, &(adc_oxi), ( TickType_t )  100 / portTICK_PERIOD_MS)) {
+					temp_oxi = filter(adc_oxi.value);
+					update_oxi(filter(adc_oxi.value));
+				}
+		} else{
+				update_bat(filter(ZERA));
+				update_oxi(filter(ZERA));
 		}
-		
-		if (xQueueReceive( xQueueADC_oxi, &(adc_oxi), ( TickType_t )  100 / portTICK_PERIOD_MS)) {
-			update_oxi(adc_oxi.value);
+		if(pause && got){
+			got = 0;
+			update_hist(&hist_bat,temp_bat);
+			update_hist(&hist_oxi,temp_oxi);
+			draw_hist_bat(&hist_bat);
+			draw_hist_oxi(&hist_oxi);
+
 		}
+
   }
 }
 
