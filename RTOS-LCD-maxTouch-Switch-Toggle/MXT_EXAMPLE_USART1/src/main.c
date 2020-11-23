@@ -11,6 +11,7 @@
 #include "design/oxi-numero.h"
 #include "design/OXI_screen_night.h"
 #include "design/OXI_screen_day.h" 
+#include "design/oxi-numero-day.h"
 
 /************************************************************************/
 /* prototypes                                                           */
@@ -156,10 +157,18 @@ static void configure_lcd(void){
 /* funcoes                                                              */
 /************************************************************************/
 
-void draw_screen(void) {
+void draw_screen(int day_night) {
   ili9488_set_foreground_color(COLOR_CONVERT(COLOR_BLACK));
   ili9488_draw_filled_rectangle(0, 0, ILI9488_LCD_WIDTH-1, ILI9488_LCD_HEIGHT-1);
-	ili9488_draw_pixmap(0, 0, OXI_screen_night.width, OXI_screen_night.height, OXI_screen_night.data);
+  if (day_night)
+  {
+    ili9488_draw_pixmap(0, 0, OXI_screen_night.width, OXI_screen_night.height, OXI_screen_night.data);
+  } 
+  else
+  {
+    ili9488_draw_pixmap(0, 0, OXI_screen_day.width, OXI_screen_day.height, OXI_screen_day.data);
+  }
+	
 }
 
 // void draw_button(uint32_t clicked) {
@@ -329,41 +338,58 @@ void update_screen(uint32_t tx, uint32_t ty,int *pause,int *day_night)
 	if (set_touch(tx, ty, LOCX_DAY_NIGHT, LOCY_DAY_NIGHT, W_DAY_NIGHT, H_DAY_NIGHT))
 	{
 		*day_night = !*day_night;
+    draw_screen(day_night);
 	}
 }
 
-void update_oxi(int n){
+void update_oxi(int n,int day_night){
 	char buff[32];
 	sprintf(buff, "%03d" , n);
-	font_draw_text(&oxinumero, buff, 150, 50, 0);
+  if (day_night)
+  {
+    font_draw_text(&oxinumero, buff, 150, 50, 0);
+  }
+  else
+  {
+    font_draw_text(&oxinumeroday, buff, 150, 50, 0);
+  }
+	
 }
 
-void update_bat(int n){
+void update_bat(int n,int day_night){
 	char buff[32];
 	sprintf(buff, "%03d", n);
-	font_draw_text(&oxinumero, buff, 150, 280, 0);
+  if (day_night)
+  {
+    font_draw_text(&oxinumero, buff, 150, 280, 0);
+  } 
+  else
+  {
+    font_draw_text(&oxinumeroday, buff, 150, 280, 0);
+  }
+	
 }
 
 int filter(int p){
 	return p/40;
 }
 
-void draw_hist_oxi(int *hist[]){
+void draw_hist_oxi(int *hist){
 	char buff0[32];
 	char buff1[32];
 	sprintf(buff0,"%03d",hist[0]);
 	sprintf(buff1,"%03d",hist[1]);
-	font_draw_text(&oxinumsmall,buff0,10,60,0);
-	font_draw_text(&oxinumsmall,buff1,10,110,0);
+	font_draw_text(&oxinumsmall,buff0,5,70,0);
+	font_draw_text(&oxinumsmall,buff1,5,110,0);
 }
 
-void draw_hist_bat(int *hist[]){
+void draw_hist_bat(int *hist){
 	char buff0[32];
 	char buff1[32];
 	sprintf(buff0,"%03d",hist[0]);
 	sprintf(buff1,"%03d",hist[1]);
-	font_draw_text(&oxinumsmall,buff0,30,60,0);
-	font_draw_text(&oxinumsmall,buff1,30,110,0);
+	font_draw_text(&oxinumsmall,buff0,65,70,0);
+	font_draw_text(&oxinumsmall,buff1,65,110,0);
 }
 /************************************************************************/
 /* tasks                                                                */
@@ -440,9 +466,9 @@ void task_adc(void){
 	}
 }
 
-void update_hist(int *hist[],int value){
-	*hist[1] = *hist[0];
-	*hist[0] = value;
+void update_hist(int *hist, int value){
+	*(hist + 1) = *(hist + 0);
+	*(hist + 0) = value;
 	}
 	
 
@@ -453,8 +479,6 @@ void task_lcd(void){
 	xQueueADC_oxi   = xQueueCreate( 5, sizeof( adcData ) );
   configure_lcd();
   
-  draw_screen();
-  
   // Escreve DEMO - BUT no LCD
   //font_draw_text(&batnumero, "0123", 0, 0, 0);
   //update_bat(23);
@@ -464,15 +488,22 @@ void task_lcd(void){
 	int ZERA = 0;
 	int got = 0;
 	
-	int hist_bat[2];
+  draw_screen(day_night);
+  
+	int hist_bat[] = { 102, 103};
 	int temp_bat;
-	int hist_oxi[2];
+	int hist_oxi[] = {104, 105};
 	int temp_oxi;
   
   // strut local para armazenar msg enviada pela task do mxt
   touchData touch;
   adcData adc_bat;
 	adcData adc_oxi;
+  
+  draw_hist_bat(&hist_bat);
+  draw_hist_oxi(&hist_oxi);
+
+  
   while (true) {
     if (xQueueReceive( xQueueTouch, &(touch), ( TickType_t )  500 / portTICK_PERIOD_MS)) {
 			update_screen(touch.x, touch.y,&pause,&day_night);
@@ -484,17 +515,17 @@ void task_lcd(void){
 				got = 1;
 				if (xQueueReceive( xQueueADC_bat, &(adc_bat), ( TickType_t )  100 / portTICK_PERIOD_MS)) {
 					temp_bat = filter(adc_bat.value);
-					update_bat(filter(adc_bat.value));
+					update_bat(filter(adc_bat.value),day_night);
 					printf("adc_bat: %d\n", adc_bat.value);
 				}
 					
 				if (xQueueReceive( xQueueADC_oxi, &(adc_oxi), ( TickType_t )  100 / portTICK_PERIOD_MS)) {
 					temp_oxi = filter(adc_oxi.value);
-					update_oxi(filter(adc_oxi.value));
+					update_oxi(filter(adc_oxi.value),day_night);
 				}
 		} else{
-				update_bat(filter(ZERA));
-				update_oxi(filter(ZERA));
+				update_bat(filter(ZERA),day_night);
+				update_oxi(filter(ZERA),day_night);
 		}
 		if(pause && got){
 			got = 0;
@@ -504,7 +535,6 @@ void task_lcd(void){
 			draw_hist_oxi(&hist_oxi);
 
 		}
-
   }
 }
 

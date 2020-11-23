@@ -1215,5 +1215,5 @@ static const tChar oxinumsmall_array[] = {
 };
 
 
-const tFont oxinumsmall = { 26, oxinumsmall_array };
+const tFont oxinumsmall = { 26, oxinumsmall_array , '!' , '9'};
 
